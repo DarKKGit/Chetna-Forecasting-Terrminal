@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap');
+* { box-sizing: border-box; 
+scrollbar-width: none;
+-ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html { background: #09152f; overscroll-behavior-y: none; } body { margin: 0; min-width: 320px; font-family: 'DM Sans', Arial, sans-serif; overscroll-behavior-y: none; } button, input { font: inherit; }
