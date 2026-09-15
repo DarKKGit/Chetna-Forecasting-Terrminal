@@ -1,11 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCalculator,
   faChartLine,
+  faCircleInfo,
+  faEnvelope,
+  faEye,
+  faEyeSlash,
   faFileExport,
+  faHouse,
   faLandmark,
+  faMoon,
+  faRightFromBracket,
   faStamp,
+  faSun,
   faTableList,
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
@@ -14,6 +22,30 @@ import "./effects.css";
 import Brand from "./assets/components/Brand.jsx";
 import ShieldCheck from "./assets/components/ShieldCheck.jsx";
 import Footer from "./assets/components/Footer.jsx";
+
+// Password fields render as plain text inputs whose displayed value is
+// starred out (instead of relying on the browser's native "•" masking, which
+// can't be restyled), while the real value is tracked separately. This
+// derives the correct real value from any edit — typed, pasted, or
+// deleted — anywhere in the field, not just at the end.
+const maskedInputProps = (realValue, setRealValue, visible) => ({
+  type: "text",
+  value: visible ? realValue : "*".repeat(realValue.length),
+  onChange: (event) => {
+    if (visible) {
+      setRealValue(event.target.value);
+      return;
+    }
+    const displayed = event.target.value;
+    const insertedRun = displayed.replace(/\*/g, "");
+    const cursorPos = event.target.selectionStart ?? displayed.length;
+    const insertionPoint = Math.max(0, cursorPos - insertedRun.length);
+    const removedCount = Math.max(0, realValue.length + insertedRun.length - displayed.length);
+    setRealValue(
+      realValue.slice(0, insertionPoint) + insertedRun + realValue.slice(insertionPoint + removedCount),
+    );
+  },
+});
 
 const slides = [
   [
@@ -55,12 +87,25 @@ const leaders = [
 
 function Nav({ page, setPage, light, setLight }) {
   const [open, setOpen] = useState(false);
+  const navRef = useRef(null);
   const go = (p) => {
     setPage(p);
     setOpen(false);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const closeIfOutside = (event) => {
+      if (navRef.current && !navRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeIfOutside);
+    return () => document.removeEventListener("mousedown", closeIfOutside);
+  }, [open]);
+
   return (
-    <nav>
+    <nav ref={navRef}>
       <button
         className="hamburger"
         onClick={() => setOpen(!open)}
@@ -71,25 +116,26 @@ function Nav({ page, setPage, light, setLight }) {
       {open && (
         <div className="menu">
           <button
-            className={page === "home" ? "active" : ""}
+            className={"glow-link " + (page === "home" ? "active" : "")}
             onClick={() => go("home")}
           >
-            Home
+            <FontAwesomeIcon icon={faHouse} fixedWidth /> <span>Home</span>
           </button>
           <button
-            className={page === "about" ? "active" : ""}
+            className={"glow-link " + (page === "about" ? "active" : "")}
             onClick={() => go("about")}
           >
-            About
+            <FontAwesomeIcon icon={faCircleInfo} fixedWidth /> <span>About</span>
           </button>
           <button
-            className={page === "contact" ? "active" : ""}
+            className={"glow-link " + (page === "contact" ? "active" : "")}
             onClick={() => go("contact")}
           >
-            Contact Information
+            <FontAwesomeIcon icon={faEnvelope} fixedWidth /> <span>Contact Information</span>
           </button>
-          <button onClick={() => setLight(!light)}>
-            {light ? "☀" : "☾"} {light ? "Dark mode" : "Light mode"}
+          <button className="glow-link" onClick={() => setLight(!light)}>
+            <FontAwesomeIcon icon={light ? faSun : faMoon} fixedWidth />{" "}
+            <span>{light ? "Dark mode" : "Light mode"}</span>
           </button>
         </div>
       )}
@@ -191,14 +237,17 @@ function Login({ onLogin, onForgot, passwordValue }) {
         />
         <div className="password">
           <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type={show ? "text" : "password"}
+            {...maskedInputProps(password, setPassword, show)}
             placeholder="Password"
             required
           />
-          <button type="button" onClick={() => setShow(!show)}>
-            {show ? "◉" : "◌"}
+          <button
+            type="button"
+            className={"glow-link " + (show ? "active" : "")}
+            onClick={() => setShow(!show)}
+            aria-label={show ? "Hide password" : "Show password"}
+          >
+            <FontAwesomeIcon icon={show ? faEye : faEyeSlash} />
           </button>
         </div>
         <button type="button" className="link" onClick={onForgot}>
@@ -403,27 +452,73 @@ const profile = [
    entirely from an uploaded .xlsx workbook at runtime.
    ========================================================= */
 
+// Matches the column headers of npa_predictive_provisioning_dataset
+// (NPA Dataset and Blueprint) exactly, so a downloaded template can be
+// filled in the same shape as that reference dataset and re-uploaded as-is.
 const excelHeaders = [
-  "Unique ID",
-  "Name",
-  "Product Type",
-  "Sector",
-  "Disbursed / Sanctioned Amount",
-  "Secured / Unsecured",
-  "Date of Disbursement",
-  "DPD",
-  "SMA Level",
-  "Credit Score",
-  "Collateral",
-  "Collateral Valuation Date",
-  "EMI Status",
-  "PD",
-  "EAD",
-  "LGD",
-  "Branch",
-  "Guarantor",
-  "Restructured",
-  "EWS Signals",
+  "account_id",
+  "customer_id",
+  "customer_name",
+  "customer_type",
+  "product_type",
+  "sector",
+  "state",
+  "branch_code",
+  "relationship_manager_id",
+  "sanction_date",
+  "disbursement_date",
+  "maturity_date",
+  "tenure_months",
+  "sanctioned_amount",
+  "outstanding_amount",
+  "interest_rate_pct",
+  "repayment_frequency",
+  "collateral_secured",
+  "collateral_type",
+  "collateral_value",
+  "collateral_last_valuation_days_ago",
+  "restructured_flag",
+  "restructure_count",
+  "bureau_score",
+  "bureau_score_3m_change",
+  "existing_relationship_years",
+  "kyc_risk_category",
+  "cross_bank_dpd_reported",
+  "current_ratio",
+  "dscr",
+  "leverage_ratio",
+  "dpd_days",
+  "bounce_count_6m",
+  "limit_utilization_pct",
+  "irac_category",
+  "irac_subcategory",
+  "ecl_stage",
+  "irac_provision_rate",
+  "irac_floor_provision",
+  "pd_30d",
+  "pd_60d",
+  "pd_90d",
+  "pd_180d",
+  "lgd_estimate",
+  "ead",
+  "ecl_estimated_provision",
+  "recommended_provision",
+  "risk_score_100",
+  "ews_signal_count_90d",
+  "ews_primary_signal",
+  "ews_severity",
+  "npa_alert_flag",
+  "sma_watch_flag",
+  "ews_alert_flag",
+  "any_alert_flag",
+  "alert_priority",
+  "alert_reason",
+  "needs_review",
+  "approval_status",
+  "override_reason",
+  "macro_repo_rate_at_sanction",
+  "model_version",
+  "snapshot_date",
 ];
 
 const downloadExcelTemplate = async () => {
@@ -551,7 +646,7 @@ const mapRowToRecord = (row, index) => {
     0,
   );
   const ead = toNumber(findField(row, "ead", "exposureatdefault"), 0);
-  const dpd = toNumber(findField(row, "dpd", "dayspastdue", "overduedays", "daysoverdue"), 0);
+  const dpd = toNumber(findField(row, "dpd", "dpddays", "dayspastdue", "overduedays", "daysoverdue"), 0);
 
   const securedFlag = findField(row, "collateralsecured", "issecured");
   const security = securedFlag
@@ -640,7 +735,9 @@ const mapRowToRecord = (row, index) => {
       ) || "Not stated",
     ),
     dpd,
-    sma: String(findField(row, "smalevel", "sma", "smacategory", "smastage") || "SMA-0"),
+    sma: String(
+      findField(row, "smalevel", "sma", "smacategory", "smastage", "iracsubcategory") || "SMA-0",
+    ),
     iracCategory: String(findField(row, "iraccategory") || ""),
     score: toNumber(
       findField(row, "creditscore", "score", "cibilscore", "bureauscore"),
@@ -1076,8 +1173,8 @@ function PortfolioUploadCard({ onUpload, count, fileName }) {
           {busy ? "Reading file…" : "Drop your .xlsx or .csv file here, or click to browse"}
         </strong>
         <small>
-          Unique ID · Name · Sector · Amount · Secured/Unsecured · DPD · SMA Level · Credit Score
-          and more
+          account_id · customer_name · product_type · sector · sanctioned_amount · dpd_days ·
+          irac_subcategory · bureau_score and more
         </small>
       </label>
 
@@ -2430,27 +2527,34 @@ function Dashboard({ light, setLight, onLogout, session }) {
         </div>
         <nav className="dashboard-nav">
           {nav.map(([id, icon, label]) => (
-            <button className={active === id ? "active" : ""} onClick={() => go(id)} key={id}>
+            <button
+              className={"glow-link " + (active === id ? "active" : "")}
+              onClick={() => go(id)}
+              key={id}
+            >
               <FontAwesomeIcon icon={icon} fixedWidth /> <span>{label}</span>
             </button>
           ))}
         </nav>
         <div className="side-actions">
           <button
+            className="glow-link"
             onClick={() => {
               setLight(!light);
               setMenuOpen(false);
             }}
           >
-            {light ? "☀" : "☾"} {light ? "Light mode" : "Dark mode"}
+            <FontAwesomeIcon icon={light ? faSun : faMoon} fixedWidth />{" "}
+            <span>{light ? "Light mode" : "Dark mode"}</span>
           </button>
           <button
+            className="glow-link"
             onClick={() => {
               setMenuOpen(false);
               onLogout();
             }}
           >
-            ↪ Sign out
+            <FontAwesomeIcon icon={faRightFromBracket} fixedWidth /> <span>Sign out</span>
           </button>
         </div>
       </aside>
@@ -2564,19 +2668,14 @@ function ResetPassword({ onComplete }) {
           <label>
             New password
             <span className="reset-password">
-              <input
-                type={showNew ? "text" : "password"}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                minLength="8"
-                required
-              />
+              <input {...maskedInputProps(newPassword, setNewPassword, showNew)} minLength="8" required />
               <button
                 type="button"
+                className={"glow-link " + (showNew ? "active" : "")}
                 onClick={() => setShowNew(!showNew)}
                 aria-label={showNew ? "Hide new password" : "Show new password"}
               >
-                {showNew ? "◉" : "◌"}
+                <FontAwesomeIcon icon={showNew ? faEye : faEyeSlash} />
               </button>
             </span>
           </label>
@@ -2584,14 +2683,13 @@ function ResetPassword({ onComplete }) {
             Confirm password
             <span className="reset-password">
               <input
-                type={showConfirm ? "text" : "password"}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                {...maskedInputProps(confirmPassword, setConfirmPassword, showConfirm)}
                 minLength="8"
                 required
               />
               <button
                 type="button"
+                className={"glow-link " + (showConfirm ? "active" : "")}
                 onClick={() => setShowConfirm(!showConfirm)}
                 aria-label={
                   showConfirm
@@ -2599,7 +2697,7 @@ function ResetPassword({ onComplete }) {
                     : "Show confirmed password"
                 }
               >
-                {showConfirm ? "◉" : "◌"}
+                <FontAwesomeIcon icon={showConfirm ? faEye : faEyeSlash} />
               </button>
             </span>
           </label>

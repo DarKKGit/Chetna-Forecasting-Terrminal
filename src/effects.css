@@ -2651,3 +2651,65 @@
   }
 }
 
+/* =========================================================
+   GLOW-LINK — teal text/icon hover, no background wash
+   ========================================================= */
+
+.glow-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: color 0.18s ease;
+}
+
+.glow-link svg {
+  transition: filter 0.18s ease, color 0.18s ease;
+}
+
+.glow-link span {
+  margin-left: 0 !important;
+  transition: text-shadow 0.18s ease, color 0.18s ease;
+}
+
+.glow-link:hover,
+.glow-link:focus-visible,
+.glow-link.active {
+  background: transparent !important;
+  color: #2dd4bf;
+}
+
+.glow-link:hover svg,
+.glow-link:focus-visible svg,
+.glow-link.active svg {
+  color: #2dd4bf;
+  filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.85));
+}
+
+.glow-link:hover span,
+.glow-link:focus-visible span,
+.glow-link.active span {
+  color: #2dd4bf;
+  text-shadow: 0 0 10px rgba(45, 212, 191, 0.6);
+}
+
+.light .glow-link:hover,
+.light .glow-link:focus-visible,
+.light .glow-link.active {
+  background: transparent !important;
+  color: #0d9488;
+}
+
+.light .glow-link:hover svg,
+.light .glow-link:focus-visible svg,
+.light .glow-link.active svg {
+  color: #0d9488;
+  filter: drop-shadow(0 0 6px rgba(13, 148, 136, 0.55));
+}
+
+.light .glow-link:hover span,
+.light .glow-link:focus-visible span,
+.light .glow-link.active span {
+  color: #0d9488;
+  text-shadow: 0 0 8px rgba(13, 148, 136, 0.35);
+}
+
