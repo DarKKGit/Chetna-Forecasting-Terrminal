@@ -1870,8 +1870,8 @@ function Account360({ record }) {
           <strong>{record.dpd}</strong>
         </div>
         <div className="account-stat">
-          <span>PD (180d)</span>
-          <strong>{Number(record.pd || 0).toFixed(0)}%</strong>
+          <span>PD (90d)</span>
+          <strong>{Number(horizons.find((h) => h.horizon === "90d")?.value || 0).toFixed(0)}%</strong>
         </div>
         <div className="account-stat">
           <span>Security</span>
