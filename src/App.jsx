@@ -896,29 +896,6 @@ const money = (value) =>
 
 const percent = (value) => `${Number(value || 0).toFixed(2)}%`;
 
-const isNpa = (record) => {
-  const dpd = Number(record.dpd || 0);
-  const sma = String(record.sma || "").trim().toUpperCase();
-  const iracCategory = String(record.iracCategory || "").trim().toUpperCase();
-  return (
-    dpd > 90 ||
-    iracCategory === "NPA" ||
-    sma === "NPA" ||
-    sma.includes("SUB-STANDARD") ||
-    sma.includes("SUBSTANDARD") ||
-    sma.includes("STRESSED") ||
-    sma.includes("DOUBTFUL") ||
-    sma.includes("LOSS")
-  );
-};
-
-const riskOf = (record) =>
-  isNpa(record) || record.score < 600
-    ? "High risk"
-    : record.dpd >= 31 || record.sma === "SMA-2" || record.score < 660
-      ? "Watchlist"
-      : "Safe";
-
 /* =========================================================
    RBI IRAC CLASSIFICATION ENGINE (deterministic, DPD-based)
    ========================================================= */
@@ -1016,6 +993,12 @@ const inNpaBranch = (record) => npaBranchClasses.includes(classifyIrac(record));
 const isOdCcRecord = (record) =>
   ["overdraft", "cash credit"].includes(String(record.productType || "").trim().toLowerCase());
 const npaLabelOf = (record) => (isOdCcRecord(record) ? "Out of Order" : "NPA");
+
+// Gross/Net NPA and provisioning totals across the app run off this single
+// check — classifyIrac stages Overdraft/Cash Credit accounts the same way
+// as any other account, so an "Out of Order" account already counts toward
+// NPA here exactly like a regular NPA would.
+const isNpa = inNpaBranch;
 
 const validStages = ["Stage 1", "Stage 2", "Stage 3"];
 
@@ -1270,6 +1253,9 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
   }
 
   const total = records.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  // NPA + Out of Order accounts together — Overdraft/Cash Credit accounts
+  // that are "out of order" are NPA-equivalent and must feed the same
+  // Gross/Net NPA and provisioning totals as any other NPA.
   const npaRecords = records.filter(isNpa);
   const grossNpaAmount = npaRecords.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const grossNpaPct = total > 0 ? (grossNpaAmount / total) * 100 : 0;
@@ -1280,8 +1266,8 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
   const pcr = total > 0 ? (provisionsHeld / total) * 100 : 0;
 
   const headline = [
-    { label: "Gross NPA %", value: percent(grossNpaPct), sub: "of total disbursed" },
-    { label: "Net NPA %", value: percent(netNpaPct), sub: "of total disbursed" },
+    { label: "Gross NPA %", value: percent(grossNpaPct), sub: "incl. Out of Order, of total disbursed" },
+    { label: "Net NPA %", value: percent(netNpaPct), sub: "incl. Out of Order, of total disbursed" },
     { label: "Provision Coverage Ratio", value: percent(pcr), sub: "of total disbursed" },
   ];
 
