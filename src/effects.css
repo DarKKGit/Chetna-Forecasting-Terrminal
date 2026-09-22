@@ -2249,6 +2249,10 @@
   background: rgba(9, 25, 47, 0.4);
 }
 
+.crilc-chart-card-wide {
+  grid-column: 1 / -1;
+}
+
 .crilc-chart-card h3 {
   margin: 4px 0 10px;
   font-size: 15px;

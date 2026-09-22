@@ -2338,7 +2338,6 @@ function CrilcReport({ records }) {
   const missingPan = qualifying.filter((r) => !panFormatValid(r.pan)).length;
   const missingCin = qualifying.filter((r) => !r.cin).length;
   const missingLei = qualifying.filter((r) => !r.lei).length;
-  const nonFundCaptured = qualifying.some((r) => Number(r.nonFundBasedExposure || 0) > 0);
 
   const checklist = [
     {
@@ -2364,13 +2363,6 @@ function CrilcReport({ records }) {
         missingLei === 0
           ? "All qualifying borrowers carry an LEI."
           : `${missingLei} of ${qualifying.length} borrowers are missing an LEI.`,
-    },
-    {
-      label: "Non-fund based exposure",
-      pass: nonFundCaptured,
-      detail: nonFundCaptured
-        ? "Non-fund based exposure is captured for at least one account."
-        : "Not captured in this upload — Section 1 exposure is fund-based only.",
     },
     {
       label: "Unit of measurement",
@@ -2505,6 +2497,7 @@ function CrilcReport({ records }) {
               <RechartsTooltip
                 contentStyle={{ background: "#0b1c33", border: "1px solid rgba(153,187,221,0.3)", borderRadius: 8 }}
                 labelStyle={{ color: "#edf4fa" }}
+                itemStyle={{ color: "#edf4fa" }}
                 formatter={(value) => [`₹${value.toFixed(2)} Cr`, "Exposure"]}
               />
               <Line
@@ -2546,6 +2539,7 @@ function CrilcReport({ records }) {
               <RechartsTooltip
                 contentStyle={{ background: "#0b1c33", border: "1px solid rgba(153,187,221,0.3)", borderRadius: 8 }}
                 labelStyle={{ color: "#edf4fa" }}
+                itemStyle={{ color: "#edf4fa" }}
                 formatter={(value) => [`₹${value.toFixed(2)} Cr`, "Exposure"]}
               />
               <Area type="monotone" dataKey="exposure" stroke="#63c4ff" strokeWidth={2} fill="url(#crilcSectorArea)" />
@@ -2553,7 +2547,7 @@ function CrilcReport({ records }) {
           </ResponsiveContainer>
         </div>
 
-        <div className="crilc-chart-card">
+        <div className="crilc-chart-card crilc-chart-card-wide">
           <span className="risk-eyebrow">ASSET QUALITY</span>
           <h3>Exposure by asset classification</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -2564,6 +2558,7 @@ function CrilcReport({ records }) {
               <RechartsTooltip
                 contentStyle={{ background: "#0b1c33", border: "1px solid rgba(153,187,221,0.3)", borderRadius: 8 }}
                 labelStyle={{ color: "#edf4fa" }}
+                itemStyle={{ color: "#edf4fa" }}
                 formatter={(value) => [`₹${value.toFixed(2)} Cr`, "Exposure"]}
               />
               <Bar dataKey="exposure" radius={[6, 6, 0, 0]}>
