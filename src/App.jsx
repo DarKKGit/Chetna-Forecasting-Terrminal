@@ -1009,6 +1009,14 @@ const classifyIrac = (record) => {
 const npaBranchClasses = ["Sub-standard", "Doubtful-1", "Doubtful-2", "Doubtful-3", "Loss"];
 const inNpaBranch = (record) => npaBranchClasses.includes(classifyIrac(record));
 
+// RBI classifies revolving/on-demand facilities (Overdraft, Cash Credit) as
+// NPA when the account is "out of order" rather than by a fixed DPD count —
+// the account itself is still staged Sub-standard/Doubtful/Loss the same way,
+// only the label shown to the user changes from "NPA" to "Out of Order".
+const isOdCcRecord = (record) =>
+  ["overdraft", "cash credit"].includes(String(record.productType || "").trim().toLowerCase());
+const npaLabelOf = (record) => (isOdCcRecord(record) ? "Out of Order" : "NPA");
+
 const validStages = ["Stage 1", "Stage 2", "Stage 3"];
 
 // Prefer the bank's own ground-truth figures when the uploaded file supplies
@@ -1288,26 +1296,53 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
     { key: "SMA-1", count: records.filter((r) => classifyIrac(r) === "SMA-1").length, color: iracColors["SMA-1"] },
     { key: "SMA-2", count: records.filter((r) => classifyIrac(r) === "SMA-2").length, color: iracColors["SMA-2"] },
   ];
+  // Overdraft/Cash Credit accounts are staged the same way but excluded from
+  // the NPA branch below — they're reported as "Out of Order" instead.
   const npaBranch = [
     {
       key: "Sub-standard",
-      count: records.filter((r) => classifyIrac(r) === "Sub-standard").length,
+      count: records.filter((r) => !isOdCcRecord(r) && classifyIrac(r) === "Sub-standard").length,
       color: iracColors["Sub-standard"],
     },
     {
       key: "Doubtful",
-      count: records.filter((r) => ["Doubtful-1", "Doubtful-2", "Doubtful-3"].includes(classifyIrac(r))).length,
+      count: records.filter((r) => !isOdCcRecord(r) && ["Doubtful-1", "Doubtful-2", "Doubtful-3"].includes(classifyIrac(r)))
+        .length,
       color: iracColors["Doubtful-1"],
     },
-    { key: "Loss", count: records.filter((r) => classifyIrac(r) === "Loss").length, color: iracColors.Loss },
+    {
+      key: "Loss",
+      count: records.filter((r) => !isOdCcRecord(r) && classifyIrac(r) === "Loss").length,
+      color: iracColors.Loss,
+    },
+  ];
+  const outOfOrderBranch = [
+    {
+      key: "Sub-standard",
+      count: records.filter((r) => isOdCcRecord(r) && classifyIrac(r) === "Sub-standard").length,
+      color: iracColors["Sub-standard"],
+    },
+    {
+      key: "Doubtful",
+      count: records.filter((r) => isOdCcRecord(r) && ["Doubtful-1", "Doubtful-2", "Doubtful-3"].includes(classifyIrac(r)))
+        .length,
+      color: iracColors["Doubtful-1"],
+    },
+    {
+      key: "Loss",
+      count: records.filter((r) => isOdCcRecord(r) && classifyIrac(r) === "Loss").length,
+      color: iracColors.Loss,
+    },
   ];
   const treeMax = Math.max(
     ...standardBranch.map((b) => b.count),
     ...npaBranch.map((b) => b.count),
+    ...outOfOrderBranch.map((b) => b.count),
     1,
   );
   const standardTotal = standardBranch.reduce((sum, b) => sum + b.count, 0);
   const npaTotal = npaBranch.reduce((sum, b) => sum + b.count, 0);
+  const outOfOrderTotal = outOfOrderBranch.reduce((sum, b) => sum + b.count, 0);
 
   // red / amber / green tiering shared by the top-risk list and the sector heatmap
   const riskTier = (record) => {
@@ -1359,8 +1394,11 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
         <div className="risk-panel-header">
           <div>
             <span className="risk-eyebrow">IRAC CLASSIFICATION</span>
-            <h2>Standard vs. NPA distribution</h2>
-            <p>Standard accounts staged by SMA level; NPA accounts staged by asset classification</p>
+            <h2>Standard vs. NPA vs. Out of Order distribution</h2>
+            <p>
+              Standard accounts staged by SMA level; NPA accounts staged by asset classification; Overdraft/Cash
+              Credit accounts reported as Out of Order instead of NPA
+            </p>
           </div>
         </div>
         <div className="classification-tree">
@@ -1411,6 +1449,34 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
               </div>
             ))}
           </div>
+
+          <div className="tree-branch">
+            <div className="tree-branch-head">
+              <span className="tree-branch-dot ooo" />
+              <b>Out of Order</b>
+              <span>{outOfOrderTotal} accounts</span>
+            </div>
+            {outOfOrderTotal === 0 ? (
+              <p className="risk-empty">No Overdraft/Cash Credit accounts out of order.</p>
+            ) : (
+              outOfOrderBranch.map((b) => (
+                <div
+                  className="classification-row"
+                  key={b.key}
+                  data-tooltip={`${b.key}\n${b.count} of ${outOfOrderTotal} out-of-order accounts`}
+                >
+                  <span className="classification-label">{b.key}</span>
+                  <div className="classification-track">
+                    <div
+                      className="classification-fill"
+                      style={{ width: Math.max(3, (b.count / treeMax) * 100) + "%", "--bar-color": b.color }}
+                    />
+                  </div>
+                  <span className="classification-count">{b.count}</span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </section>
 
@@ -1457,7 +1523,7 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
                   <span className={"tier-dot tier-" + tier} />
                   <div>
                     <b>
-                      {r.name} {tier === "red" && <span className="npa-alert-tag">⚠ NPA</span>}
+                      {r.name} {tier === "red" && <span className="npa-alert-tag">⚠ {npaLabelOf(r)}</span>}
                     </b>
                     <small>{r.id} · {r.sector}</small>
                   </div>
