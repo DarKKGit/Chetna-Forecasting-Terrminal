@@ -1767,10 +1767,11 @@ function AccountsView({ records, selectedAccountId, onSelectAccount }) {
             <thead>
               <tr>
                 <th>Borrower</th>
+                {selectedGroupKey === "other" && <th>Loan Type</th>}
                 <th>Amount</th>
                 <th>DPD</th>
                 <th>Classification</th>
-                <th>PD (180d)</th>
+                <th>PD (90)</th>
               </tr>
             </thead>
             <tbody>
@@ -1780,6 +1781,7 @@ function AccountsView({ records, selectedAccountId, onSelectAccount }) {
                     <strong>{r.name}</strong>
                     <small>{r.id}</small>
                   </td>
+                  {selectedGroupKey === "other" && <td>{r.productType || "Not stated"}</td>}
                   <td>{money(r.amount)}</td>
                   <td>{r.dpd} DPD</td>
                   <td>
@@ -1787,7 +1789,7 @@ function AccountsView({ records, selectedAccountId, onSelectAccount }) {
                       {classifyIrac(r)}
                     </span>
                   </td>
-                  <td>{Number(r.pd || 0).toFixed(0)}%</td>
+                  <td>{Number(pdHorizons(r).find((h) => h.horizon === "90d")?.value || 0).toFixed(0)}%</td>
                 </tr>
               ))}
             </tbody>
