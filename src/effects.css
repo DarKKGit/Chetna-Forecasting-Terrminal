@@ -1,3 +1,48 @@
+/* =========================================================
+   CHART HOVER TOOLTIPS (pure CSS, no library)
+   ========================================================= */
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(4px);
+  max-width: 240px;
+  padding: 8px 12px;
+  border: 1px solid rgba(153, 187, 221, 0.32);
+  border-radius: 8px;
+  background: #0b1c33;
+  color: #edf4fa;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: pre-line;
+  text-align: center;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 30;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.light [data-tooltip]::after {
+  background: #fff;
+  border-color: #a6c5df;
+  color: #173957;
+  box-shadow: 0 12px 26px rgba(38, 79, 118, 0.18);
+}
+
 /* Clean, animated background for the NPA terminal (no legacy artwork). */
 .login { isolation: isolate; background: radial-gradient(circle at 52% 46%, #234d81 0%, #0c2144 41%, #07142c 100%); }
 .login::before { content: ''; position: absolute; inset: -30%; z-index: -2; background: conic-gradient(from 120deg at 50% 50%, transparent, rgba(99, 196, 255, .08), transparent 33%, rgba(83, 233, 192, .06), transparent 66%); animation: background-drift 18s linear infinite; }
@@ -1342,18 +1387,18 @@
   --risk-loss: #6b1f1f;
 }
 
-.headline-grid-4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.headline-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @media (max-width: 900px) {
-  .headline-grid-4 {
+  .headline-grid-3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 460px) {
-  .headline-grid-4 {
+  .headline-grid-3 {
     grid-template-columns: 1fr;
   }
 }
@@ -1401,6 +1446,13 @@
 .classification-fill {
   height: 100%;
   border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--bar-color) 65%, white),
+    var(--bar-color) 55%,
+    color-mix(in srgb, var(--bar-color) 55%, black)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--bar-color) 55%, transparent);
   transition: width 0.5s ease;
 }
 
@@ -1445,8 +1497,22 @@
   gap: 4px;
   padding: 13px;
   border-radius: 11px;
+  /* Red share of the cell equals that sector's NPA share of its accounts. */
+  background: linear-gradient(
+    90deg,
+    var(--risk-substandard) 0%,
+    var(--risk-substandard) var(--npa-pct),
+    var(--risk-standard) var(--npa-pct),
+    var(--risk-standard) 100%
+  );
   color: #0d1c14;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.heatmap-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.3);
 }
 
 .heatmap-cell b {
@@ -2072,43 +2138,189 @@
    REPORTS & EXPORT
    ========================================================= */
 
-.reports-grid {
+.section-spaced {
+  margin-top: 28px;
+}
+
+/* =========================================================
+   CRILC RETURN-READY REPORT
+   ========================================================= */
+
+.crilc-report .risk-panel-header {
+  align-items: center;
+}
+
+.crilc-collapse-toggle {
+  cursor: pointer;
+}
+
+.crilc-collapse-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(153, 187, 221, 0.28);
+  border-radius: 50%;
+  background: rgba(9, 25, 47, 0.5);
+  color: #edf4fa;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.headline-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 560px;
+}
+
+.crilc-checklist {
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid rgba(153, 187, 221, 0.18);
+  border-radius: 12px;
+  background: rgba(9, 25, 47, 0.4);
+}
+
+.crilc-checklist > b {
+  display: block;
+  margin-bottom: 12px;
+  color: #edf4fa;
+  font-size: 13px;
+}
+
+.crilc-checklist ul {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.report-card {
+.crilc-checklist li {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 18px;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
 }
 
-.report-card h2 {
-  margin: 6px 0 8px;
+.crilc-checklist li div {
+  display: grid;
+  gap: 2px;
+}
+
+.crilc-checklist li b {
+  color: #edf4fa;
+}
+
+.crilc-checklist li span {
+  color: #9fb9d7;
+}
+
+.crilc-check-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.crilc-checklist li.pass .crilc-check-icon {
+  background: rgba(46, 158, 91, 0.22);
+  color: #9fe6bb;
+}
+
+.crilc-checklist li.fail .crilc-check-icon {
+  background: rgba(224, 167, 46, 0.22);
+  color: #f2d38a;
+}
+
+.crilc-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.crilc-chart-card {
+  padding: 16px;
+  border: 1px solid rgba(153, 187, 221, 0.18);
+  border-radius: 12px;
+  background: rgba(9, 25, 47, 0.4);
+}
+
+.crilc-chart-card h3 {
+  margin: 4px 0 10px;
+  font-size: 15px;
+  color: #edf4fa;
+}
+
+.crilc-section-block {
+  margin-top: 28px;
+}
+
+.crilc-section-block h3 {
+  margin: 4px 0 14px;
   font-size: 18px;
 }
 
-.report-card p {
-  margin: 0;
-  color: #9fb9d7;
-  font-size: 12.5px;
-  line-height: 1.55;
+.crilc-table-note {
+  margin: 10px 0 0;
+  color: #8da9c3;
+  font-size: 11.5px;
 }
 
-.report-card .run-analysis-button {
-  margin-top: 0;
+.crilc-show-more {
+  margin-top: 14px;
+}
+
+/* Full Section 1 table, rendered off-screen so html2canvas can capture the
+   complete list (not just the on-screen top 5) for the "Show More" PDF. */
+.crilc-export-hidden {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  width: 900px;
+  pointer-events: none;
+}
+
+.crilc-export-sheet {
+  padding: 24px;
+  background: #0b1c33;
+  color: #edf4fa;
+}
+
+.crilc-export-sheet h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.crilc-export-sheet > p {
+  margin: 0 0 18px;
+  color: #9fb9d7;
+  font-size: 12px;
+}
+
+.light .crilc-checklist,
+.light .crilc-chart-card {
+  background: #f2f7fc;
+  border-color: #a6c5df;
+}
+
+.light .crilc-checklist > b,
+.light .crilc-checklist li b,
+.light .crilc-chart-card h3 {
+  color: #173957;
+}
+
+.light .crilc-checklist li span {
+  color: #52708d;
 }
 
 @media (max-width: 1000px) {
-  .reports-grid {
+  .crilc-chart-grid {
     grid-template-columns: 1fr;
   }
-}
-
-.section-spaced {
-  margin-top: 28px;
 }
 
 /* =========================================================

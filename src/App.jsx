@@ -16,6 +16,20 @@ import {
   faTableList,
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "./App.css";
 import "./effects.css";
 import Brand from "./assets/components/Brand.jsx";
@@ -518,6 +532,20 @@ const excelHeaders = [
   "macro_repo_rate_at_sanction",
   "model_version",
   "snapshot_date",
+  // Optional — CRILC return fields, populated only when supplied.
+  "pan",
+  "cin",
+  "lei",
+  "non_fund_based_exposure",
+  "wilful_defaulter_flag",
+  "rfa_flag",
+  "written_off_amount",
+  "written_off_date",
+  "npa_classification_date",
+  "current_account_closing_balance",
+  "current_account_type",
+  "quarterly_credit_turnover",
+  "quarterly_debit_turnover",
 ];
 
 const downloadExcelTemplate = async () => {
@@ -778,6 +806,22 @@ const mapRowToRecord = (row, index) => {
     recommendedProvisionProvided: recommendedProvisionRaw !== "" ? toNumber(recommendedProvisionRaw) : null,
     iracProvisionRateProvided: iracRateRaw !== "" ? asPercent(iracRateRaw) : null,
     riskScore100Provided: riskScore100Raw !== "" ? toNumber(riskScore100Raw) : null,
+    // CRILC return fields — optional; blank when the upload doesn't supply them.
+    pan: String(findField(row, "pan") || ""),
+    cin: String(findField(row, "cin") || ""),
+    lei: String(findField(row, "lei") || ""),
+    nonFundBasedExposure: toNumber(findField(row, "nonfundbasedexposure"), 0),
+    wilfulDefaulter: isTruthy(findField(row, "wilfuldefaulterflag", "wilfuldefaulter")),
+    rfa: isTruthy(findField(row, "rfaflag", "redflaggedaccount", "rfa")),
+    writtenOffAmount: toNumber(findField(row, "writtenoffamount"), 0),
+    writtenOffDate: findField(row, "writtenoffdate") ? normalizeDateStr(findField(row, "writtenoffdate")) : "",
+    npaClassificationDate: findField(row, "npaclassificationdate")
+      ? normalizeDateStr(findField(row, "npaclassificationdate"))
+      : "",
+    currentAccountBalance: toNumber(findField(row, "currentaccountclosingbalance"), 0),
+    currentAccountType: String(findField(row, "currentaccounttype") || ""),
+    quarterlyCreditTurnover: toNumber(findField(row, "quarterlycreditturnover"), 0),
+    quarterlyDebitTurnover: toNumber(findField(row, "quarterlydebitturnover"), 0),
   };
 };
 
@@ -1085,26 +1129,6 @@ const buildRepaymentHistory = (record) => {
 const defaultApprovalStatus = (record) => (classifyIrac(record) === "Standard" ? "Not Required" : "Pending");
 
 /* =========================================================
-   CSV / EXPORT HELPERS
-   ========================================================= */
-
-const toCsv = (headers, rows) =>
-  [
-    headers.join(","),
-    ...rows.map((row) =>
-      row.map((value) => '"' + String(value ?? "").replaceAll('"', '""') + '"').join(","),
-    ),
-  ].join("\n");
-
-const triggerDownload = (fileName, content) => {
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(link.href);
-};
-
-/* =========================================================
    PORTFOLIO UPLOAD CARD (shared entry point for the workbook)
    ========================================================= */
 
@@ -1247,15 +1271,10 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
   const netNpaPct = total > 0 ? (netNpaAmount / total) * 100 : 0;
   const pcr = total > 0 ? (provisionsHeld / total) * 100 : 0;
 
-  const freshNpaRecords = records.filter((r) => Number(r.dpd || 0) > 90 && Number(r.dpd || 0) <= 120);
-  const freshNpaAmount = freshNpaRecords.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const slippageRatio = total > 0 ? (freshNpaAmount / total) * 100 : 0;
-
   const headline = [
     { label: "Gross NPA %", value: percent(grossNpaPct), sub: "of total disbursed" },
     { label: "Net NPA %", value: percent(netNpaPct), sub: "of total disbursed" },
     { label: "Provision Coverage Ratio", value: percent(pcr), sub: "of total disbursed" },
-    { label: "Slippage Ratio (approx.)", value: percent(slippageRatio), sub: "of total disbursed" },
   ];
 
   const inWatchBranch = (record) => ["SMA-1", "SMA-2"].includes(classifyIrac(record));
@@ -1307,8 +1326,6 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
     else if (inWatchBranch(r)) sectorMap[sector].watch += 1;
   });
   const sectorStress = Object.values(sectorMap).sort((a, b) => b.npa - a.npa || b.amount - a.amount);
-  const sectorTier = (s) => (s.npa > 0 ? "red" : s.watch > 0 ? "amber" : "green");
-  const tierColor = { red: "#D64545", amber: "#E0A72E", green: "#2E9E5B" };
 
   const topRisk = records
     .slice()
@@ -1328,7 +1345,7 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
 
       <PortfolioUploadCard onUpload={onUpload} count={records.length} fileName={fileName} />
 
-      <section className="dashboard-kpi-grid headline-grid-4">
+      <section className="dashboard-kpi-grid headline-grid-3">
         {headline.map((card) => (
           <article className="dashboard-kpi-card" key={card.label}>
             <p>{card.label}</p>
@@ -1354,12 +1371,16 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
               <span>{standardTotal} accounts</span>
             </div>
             {standardBranch.map((b) => (
-              <div className="classification-row" key={b.key}>
+              <div
+                className="classification-row"
+                key={b.key}
+                data-tooltip={`${b.key}\n${b.count} of ${standardTotal} standard accounts`}
+              >
                 <span className="classification-label">{b.key}</span>
                 <div className="classification-track">
                   <div
                     className="classification-fill"
-                    style={{ width: Math.max(3, (b.count / treeMax) * 100) + "%", background: b.color }}
+                    style={{ width: Math.max(3, (b.count / treeMax) * 100) + "%", "--bar-color": b.color }}
                   />
                 </div>
                 <span className="classification-count">{b.count}</span>
@@ -1374,12 +1395,16 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
               <span>{npaTotal} accounts</span>
             </div>
             {npaBranch.map((b) => (
-              <div className="classification-row" key={b.key}>
+              <div
+                className="classification-row"
+                key={b.key}
+                data-tooltip={`${b.key}\n${b.count} of ${npaTotal} NPA accounts`}
+              >
                 <span className="classification-label">{b.key}</span>
                 <div className="classification-track">
                   <div
                     className="classification-fill"
-                    style={{ width: Math.max(3, (b.count / treeMax) * 100) + "%", background: b.color }}
+                    style={{ width: Math.max(3, (b.count / treeMax) * 100) + "%", "--bar-color": b.color }}
                   />
                 </div>
                 <span className="classification-count">{b.count}</span>
@@ -1399,18 +1424,20 @@ function PortfolioDashboardView({ records, onUpload, fileName }) {
             </div>
           </div>
           <div className="stress-heatmap">
-            {sectorStress.map((s) => (
-              <div
-                className="heatmap-cell"
-                key={s.sector}
-                style={{ background: tierColor[sectorTier(s)] }}
-                title={`${s.sector}: ${s.npa} NPA, ${s.watch} watch`}
-              >
-                <b>{s.sector}</b>
-                <span>{money(s.amount)}</span>
-                <small>{s.npa} NPA · {s.watch} watch / {s.accounts}</small>
-              </div>
-            ))}
+            {sectorStress.map((s) => {
+              const npaPct = s.accounts > 0 ? (s.npa / s.accounts) * 100 : 0;
+              return (
+                <div
+                  className="heatmap-cell"
+                  key={s.sector}
+                  style={{ "--npa-pct": npaPct + "%" }}
+                >
+                  <b>{s.sector}</b>
+                  <span>{money(s.amount)}</span>
+                  <small>{s.npa} NPA · {s.watch} watch / {s.accounts}</small>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -1878,7 +1905,11 @@ function Account360({ record }) {
           <b>Predictive PD — 30 / 60 / 90 / 180 day horizon</b>
           <div className="pd-chart">
             {horizons.map((h) => (
-              <div className="pd-bar-column" key={h.horizon}>
+              <div
+                className="pd-bar-column"
+                key={h.horizon}
+                data-tooltip={`${h.horizon} probability of default\n${h.value}% (confidence band ${h.band[0]}–${h.band[1]}%)`}
+              >
                 <div className="pd-bar-area">
                   <div
                     className="pd-band"
@@ -2224,88 +2255,404 @@ function ProvisioningView({
 }
 
 /* =========================================================
+   CRILC RETURN-READY REPORT
+   (Central Repository of Information on Large Credits)
+   ========================================================= */
+
+const CRORE = 1e7;
+const inCrore = (value) => Number(value || 0) / CRORE;
+const crMoney = (value) => `₹${inCrore(value).toFixed(2)} Cr`;
+const panFormatValid = (pan) => /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(pan || "").trim());
+
+// Collapses the 9-way IRAC ladder into the 4 buckets CRILC reports against.
+const assetClassBucket = (record) => {
+  const cls = classifyIrac(record);
+  if (cls === "Standard" || cls.startsWith("SMA")) return "Standard";
+  if (cls.startsWith("Doubtful")) return "Doubtful";
+  return cls; // Sub-standard, Loss
+};
+
+// DPD bands exactly as the CRILC SMA definition specifies; NPA (>90 DPD)
+// falls outside the SMA ladder entirely.
+const smaDpdBand = (record) => {
+  const dpd = Number(record.dpd || 0);
+  if (dpd <= 0) return "Standard";
+  if (dpd <= 30) return "SMA-0";
+  if (dpd <= 60) return "SMA-1";
+  if (dpd <= 90) return "SMA-2";
+  return "NPA";
+};
+
+const assetClassColors = {
+  Standard: "#2e9e5b",
+  "Sub-standard": "#d64545",
+  Doubtful: "#a63232",
+  Loss: "#6b1f1f",
+};
+
+const smaDpdColors = {
+  Standard: "#2e9e5b",
+  "SMA-0": "#7bae3f",
+  "SMA-1": "#e0a72e",
+  "SMA-2": "#e07b2e",
+  NPA: "#d64545",
+};
+
+function CrilcReport({ records }) {
+  const exportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (records.length === 0) return null;
+
+  // Aggregate exposure = fund-based + non-fund-based + investment exposure.
+  // This dataset only carries a fund-based outstanding and an optional
+  // non-fund-based column; investment exposure isn't collected.
+  const exposureOf = (r) => Number(r.amount || 0) + Number(r.nonFundBasedExposure || 0);
+  const qualifying = records
+    .filter((r) => exposureOf(r) >= 5 * CRORE)
+    .sort((a, b) => exposureOf(b) - exposureOf(a));
+
+  const assetClassData = ["Standard", "Sub-standard", "Doubtful", "Loss"].map((bucket) => ({
+    bucket,
+    exposure: inCrore(qualifying.filter((r) => assetClassBucket(r) === bucket).reduce((s, r) => s + exposureOf(r), 0)),
+    color: assetClassColors[bucket],
+  }));
+
+  const smaDpdData = ["Standard", "SMA-0", "SMA-1", "SMA-2", "NPA"].map((band) => ({
+    band,
+    exposure: inCrore(qualifying.filter((r) => smaDpdBand(r) === band).reduce((s, r) => s + exposureOf(r), 0)),
+    color: smaDpdColors[band],
+  }));
+
+  const sectorMap = {};
+  qualifying.forEach((r) => {
+    const sector = r.sector || "Unclassified";
+    sectorMap[sector] = (sectorMap[sector] || 0) + exposureOf(r);
+  });
+  const sectorExposureData = Object.entries(sectorMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([sector, exposure]) => ({ sector, exposure: inCrore(exposure) }));
+
+  const missingPan = qualifying.filter((r) => !panFormatValid(r.pan)).length;
+  const missingCin = qualifying.filter((r) => !r.cin).length;
+  const missingLei = qualifying.filter((r) => !r.lei).length;
+  const nonFundCaptured = qualifying.some((r) => Number(r.nonFundBasedExposure || 0) > 0);
+
+  const checklist = [
+    {
+      label: "PAN Master Sync",
+      pass: missingPan === 0,
+      detail:
+        missingPan === 0
+          ? "All qualifying borrowers carry a valid-format PAN."
+          : `${missingPan} of ${qualifying.length} borrowers have a missing or invalid-format PAN.`,
+    },
+    {
+      label: "CIN coverage",
+      pass: missingCin === 0,
+      detail:
+        missingCin === 0
+          ? "All qualifying borrowers carry a CIN."
+          : `${missingCin} of ${qualifying.length} borrowers are missing a CIN.`,
+    },
+    {
+      label: "LEI coverage",
+      pass: missingLei === 0,
+      detail:
+        missingLei === 0
+          ? "All qualifying borrowers carry an LEI."
+          : `${missingLei} of ${qualifying.length} borrowers are missing an LEI.`,
+    },
+    {
+      label: "Non-fund based exposure",
+      pass: nonFundCaptured,
+      detail: nonFundCaptured
+        ? "Non-fund based exposure is captured for at least one account."
+        : "Not captured in this upload — Section 1 exposure is fund-based only.",
+    },
+    {
+      label: "Unit of measurement",
+      pass: true,
+      detail: "All monetary figures below are converted to ₹ Crore per CIMS taxonomy convention.",
+    },
+  ];
+
+  const topFive = qualifying.slice(0, 5);
+
+  const section1Row = (r) => (
+    <tr key={r.id}>
+      <td>
+        <strong>{r.name}</strong>
+        <small>{r.id}</small>
+      </td>
+      <td>{r.pan || "Not stated"}</td>
+      <td>{r.cin || "Not stated"}</td>
+      <td>{r.lei || "Not stated"}</td>
+      <td>{crMoney(r.amount)}</td>
+      <td>
+        <span className="irac-badge" style={{ background: assetClassColors[assetClassBucket(r)] }}>
+          {assetClassBucket(r)}
+        </span>
+      </td>
+      <td>{smaDpdBand(r)}</td>
+    </tr>
+  );
+
+  // "Show More" doesn't expand the on-screen table — it downloads a PDF of
+  // the full qualifying list, built from the always-rendered off-screen sheet.
+  const exportSection1 = async () => {
+    const node = exportRef.current;
+    if (!node) return;
+    setExporting(true);
+    try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#0b1c33", useCORS: true });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save("crilc-section1-large-exposure-report.pdf");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <section className="risk-panel crilc-report section-spaced">
+      <div className="risk-panel-header crilc-collapse-toggle">
+        <div>
+          <span className="risk-eyebrow">RBI CIMS / XBRL</span>
+          <h2>CRILC Return-Ready Report</h2>
+          <p>
+            Central Repository of Information on Large Credits — Section 1: Exposure to Large Borrowers
+            (aggregate exposure ≥ ₹5 crore).
+          </p>
+        </div>
+        <button
+          type="button"
+          className="crilc-collapse-icon"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand report" : "Collapse report"}
+        >
+          {collapsed ? "▸" : "▾"}
+        </button>
+      </div>
+
+      {!collapsed && (
+        <>
+          <div className="dashboard-kpi-grid headline-grid-2">
+            <article className="dashboard-kpi-card">
+              <p>Qualifying Borrowers</p>
+              <strong>{qualifying.length}</strong>
+              <small>Aggregate exposure ≥ ₹5 Cr</small>
+            </article>
+            <article className="dashboard-kpi-card">
+              <p>Total Reportable Exposure</p>
+              <strong>{crMoney(qualifying.reduce((s, r) => s + exposureOf(r), 0))}</strong>
+              <small>Fund + non-fund based</small>
+            </article>
+          </div>
+
+      <div className="crilc-checklist">
+        <b>Validation &amp; technical gates</b>
+        <ul>
+          {checklist.map((item) => (
+            <li key={item.label} className={item.pass ? "pass" : "fail"}>
+              <span className="crilc-check-icon">{item.pass ? "✓" : "!"}</span>
+              <div>
+                <b>{item.label}</b>
+                <span>{item.detail}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="crilc-chart-grid">
+        <div className="crilc-chart-card">
+          <span className="risk-eyebrow">SMA / DPD LADDER</span>
+          <h3>Exposure by SMA-DPD band</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={smaDpdData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="crilcSmaLine" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#e0a72e" stopOpacity={0.5} />
+                  <stop offset="100%" stopColor="#e0a72e" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(153,187,221,0.15)" vertical={false} />
+              <XAxis dataKey="band" stroke="#8da9c3" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke="#8da9c3" fontSize={11} tickLine={false} axisLine={false} width={40} />
+              <RechartsTooltip
+                contentStyle={{ background: "#0b1c33", border: "1px solid rgba(153,187,221,0.3)", borderRadius: 8 }}
+                labelStyle={{ color: "#edf4fa" }}
+                formatter={(value) => [`₹${value.toFixed(2)} Cr`, "Exposure"]}
+              />
+              <Line
+                type="monotone"
+                dataKey="exposure"
+                stroke="#e0a72e"
+                strokeWidth={2.5}
+                dot={{ r: 4, fill: "#e0a72e" }}
+                fill="url(#crilcSmaLine)"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="crilc-chart-card">
+          <span className="risk-eyebrow">CONCENTRATION</span>
+          <h3>Sector-wise exposure (top 8)</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={sectorExposureData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="crilcSectorArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#63c4ff" stopOpacity={0.55} />
+                  <stop offset="100%" stopColor="#63c4ff" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(153,187,221,0.15)" vertical={false} />
+              <XAxis
+                dataKey="sector"
+                stroke="#8da9c3"
+                fontSize={10}
+                tickLine={false}
+                axisLine={false}
+                interval={0}
+                angle={-20}
+                textAnchor="end"
+                height={50}
+              />
+              <YAxis stroke="#8da9c3" fontSize={11} tickLine={false} axisLine={false} width={40} />
+              <RechartsTooltip
+                contentStyle={{ background: "#0b1c33", border: "1px solid rgba(153,187,221,0.3)", borderRadius: 8 }}
+                labelStyle={{ color: "#edf4fa" }}
+                formatter={(value) => [`₹${value.toFixed(2)} Cr`, "Exposure"]}
+              />
+              <Area type="monotone" dataKey="exposure" stroke="#63c4ff" strokeWidth={2} fill="url(#crilcSectorArea)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="crilc-chart-card">
+          <span className="risk-eyebrow">ASSET QUALITY</span>
+          <h3>Exposure by asset classification</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={assetClassData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(153,187,221,0.15)" vertical={false} />
+              <XAxis dataKey="bucket" stroke="#8da9c3" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke="#8da9c3" fontSize={11} tickLine={false} axisLine={false} width={40} />
+              <RechartsTooltip
+                contentStyle={{ background: "#0b1c33", border: "1px solid rgba(153,187,221,0.3)", borderRadius: 8 }}
+                labelStyle={{ color: "#edf4fa" }}
+                formatter={(value) => [`₹${value.toFixed(2)} Cr`, "Exposure"]}
+              />
+              <Bar dataKey="exposure" radius={[6, 6, 0, 0]}>
+                {assetClassData.map((entry) => (
+                  <Cell key={entry.bucket} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+      </div>
+
+          <div className="crilc-section-block">
+            <span className="risk-eyebrow">SECTION 1</span>
+            <h3>Exposure to Large Borrowers</h3>
+            <div className="risk-table-wrapper">
+              <table className="risk-table">
+                <thead>
+                  <tr>
+                    <th>Borrower</th>
+                    <th>PAN</th>
+                    <th>CIN</th>
+                    <th>LEI</th>
+                    <th>Funded Exposure</th>
+                    <th>Asset Classification</th>
+                    <th>SMA / DPD</th>
+                  </tr>
+                </thead>
+                <tbody>{topFive.map(section1Row)}</tbody>
+              </table>
+            </div>
+            {qualifying.length > 5 && (
+              <p className="crilc-table-note">
+                Showing top 5 of {qualifying.length} qualifying borrowers by exposure.
+              </p>
+            )}
+            <button
+              type="button"
+              className="run-analysis-button crilc-show-more"
+              onClick={exportSection1}
+              disabled={exporting}
+            >
+              {exporting ? "Preparing report…" : "Show More ⇩"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Off-screen full Section 1 sheet, captured for the "Show More" PDF download. */}
+      <div className="crilc-export-hidden" aria-hidden="true">
+        <div className="crilc-export-sheet" ref={exportRef}>
+          <h2>Exposure to Large Borrowers (≥ ₹5 Crore)</h2>
+          <p>
+            CRILC Section 1 — {qualifying.length} qualifying borrowers, generated{" "}
+            {new Date().toLocaleDateString("en-IN")}
+          </p>
+          <table className="risk-table">
+            <thead>
+              <tr>
+                <th>Borrower</th>
+                <th>PAN</th>
+                <th>CIN</th>
+                <th>LEI</th>
+                <th>Funded Exposure</th>
+                <th>Asset Classification</th>
+                <th>SMA / DPD</th>
+              </tr>
+            </thead>
+            <tbody>{qualifying.map(section1Row)}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =========================================================
    5. REPORTS & EXPORT
    ========================================================= */
 
 function ReportsView({ records }) {
-  const exportCrilc = () => {
-    const large = records.filter((r) => Number(r.amount || 0) >= 5000000);
-    const headers = ["Account ID", "Borrower", "Sanctioned Amount", "Outstanding", "SMA/IRAC Status", "DPD", "Sector"];
-    const rows = large.map((r) => [r.id, r.name, r.amount, r.amount, classifyIrac(r), r.dpd, r.sector]);
-    triggerDownload("crilc-large-exposure-report.csv", toCsv(headers, rows));
-  };
-
-  const exportMisPack = () => {
-    const total = records.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-    const grossNpaAmount = records.filter(isNpa).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-    const provisions = records.filter(isNpa).reduce((sum, r) => sum + recommendedProvision(r), 0);
-    const netNpaAmount = Math.max(grossNpaAmount - provisions, 0);
-    const headers = ["Metric", "Value"];
-    const rows = [
-      ["Total Outstanding", money(total)],
-      ["Gross NPA %", percent((grossNpaAmount / (total || 1)) * 100)],
-      ["Net NPA %", percent((netNpaAmount / (total || 1)) * 100)],
-      ["Provision Coverage Ratio", percent((provisions / (grossNpaAmount || 1)) * 100)],
-      ["Total Accounts", records.length],
-      ["Existing NPAs", records.filter(isNpa).length],
-      ...iracOrder.map((cls) => [cls + " (count)", records.filter((r) => classifyIrac(r) === cls).length]),
-    ];
-    triggerDownload("board-mis-pack.csv", toCsv(headers, rows));
-  };
-
-  const exportRbiReturn = () => {
-    const headers = [
-      "Account ID",
-      "Borrower",
-      "Sector",
-      "Amount",
-      "DPD",
-      "IRAC Classification",
-      "ECL Stage",
-      "IRAC Floor Provision",
-      "ECL Estimate",
-      "Recommended Provision",
-    ];
-    const rows = records.map((r) => [
-      r.id,
-      r.name,
-      r.sector,
-      r.amount,
-      r.dpd,
-      classifyIrac(r),
-      eclStage(r),
-      iracFloorProvision(r).toFixed(0),
-      eclProvision(r).toFixed(0),
-      recommendedProvision(r).toFixed(0),
-    ]);
-    triggerDownload("rbi-return-ready-export.csv", toCsv(headers, rows));
-  };
-
-  const exportOptions = [
-    {
-      title: "CRILC Large Exposure Report",
-      desc: "Accounts ≥ ₹5 crore with current SMA/IRAC status, formatted for CRILC-style reporting.",
-      action: exportCrilc,
-    },
-    {
-      title: "Board MIS Pack",
-      desc: "Headline portfolio metrics and classification distribution for the risk-management committee.",
-      action: exportMisPack,
-    },
-    {
-      title: "RBI Return-Ready Export",
-      desc: "Full account-level classification and provisioning workpaper for statutory/regulatory filing.",
-      action: exportRbiReturn,
-    },
-  ];
-
   return (
     <div className="portfolio-dashboard">
       <div className="dashboard-heading">
         <div>
           <p className="kicker">MIS &amp; REGULATORY</p>
           <h1>Reports &amp; Export</h1>
-          <p>Board packs, CRILC-format exposure reports and RBI return-ready workpapers.</p>
+          <p>CRILC-format large exposure report, return-ready for RBI submission.</p>
         </div>
         <span className="secure-pill">
           ● {records.length > 0 ? records.length + " accounts included" : "No portfolio loaded"}
@@ -2320,25 +2667,7 @@ function ReportsView({ records }) {
         </div>
       )}
 
-      <section className="reports-grid section-spaced">
-        {exportOptions.map((option) => (
-          <article className="risk-panel report-card" key={option.title}>
-            <div>
-              <span className="risk-eyebrow">EXPORT</span>
-              <h2>{option.title}</h2>
-              <p>{option.desc}</p>
-            </div>
-            <button
-              type="button"
-              className="run-analysis-button"
-              onClick={option.action}
-              disabled={records.length === 0}
-            >
-              ⇩ Download CSV
-            </button>
-          </article>
-        ))}
-      </section>
+      <CrilcReport records={records} />
     </div>
   );
 }
