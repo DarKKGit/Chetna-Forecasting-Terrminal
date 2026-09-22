@@ -2094,7 +2094,7 @@ function ProvisioningView({
           <h1>Provisioning Calculator</h1>
           <p>IRAC regulatory floor vs. forward-looking ECL estimate (PD × LGD × EAD), side by side.</p>
         </div>
-        <span className="secure-pill">● Stage 1/2/3 aligned</span>
+        <span className="secure-pill">● Active</span>
       </div>
 
       <section className="dashboard-kpi-grid provisioning-grid">
