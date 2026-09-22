@@ -2006,11 +2006,15 @@ function ProvisioningView({
     (acc, r) => {
       acc.floor += iracFloorProvision(r);
       acc.ecl += eclProvision(r);
-      acc.recommended += recommendedProvision(r);
       return acc;
     },
-    { floor: 0, ecl: 0, recommended: 0 },
+    { floor: 0, ecl: 0 },
   );
+  // Portfolio-level recommended provision is the max of the two portfolio
+  // totals, not a sum of each account's own max — summing per-account max
+  // overstates the total whenever different accounts are driven by
+  // different measures (some by IRAC, others by ECL).
+  totals.recommended = Math.max(totals.floor, totals.ecl);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = records.filter((r) => matchesClassificationFilter(r, filter));
@@ -2261,7 +2265,8 @@ function ProvisioningView({
 
 const CRORE = 1e7;
 const inCrore = (value) => Number(value || 0) / CRORE;
-const crMoney = (value) => `₹${inCrore(value).toFixed(2)} Cr`;
+const crMoney = (value) =>
+  `₹${inCrore(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 const panFormatValid = (pan) => /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(pan || "").trim());
 
 // Collapses the 9-way IRAC ladder into the 4 buckets CRILC reports against.
@@ -2460,7 +2465,6 @@ function CrilcReport({ records }) {
             <article className="dashboard-kpi-card">
               <p>Total Reportable Exposure</p>
               <strong>{crMoney(qualifying.reduce((s, r) => s + exposureOf(r), 0))}</strong>
-              <small>Fund + non-fund based</small>
             </article>
           </div>
 
