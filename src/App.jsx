@@ -12,7 +12,6 @@ import {
   faLandmark,
   faMoon,
   faRightFromBracket,
-  faStamp,
   faSun,
   faTableList,
   faUser,
@@ -646,6 +645,7 @@ const mapRowToRecord = (row, index) => {
     0,
   );
   const ead = toNumber(findField(row, "ead", "exposureatdefault"), 0);
+  const collateralValue = toNumber(findField(row, "collateralvalue"), 0);
   const dpd = toNumber(findField(row, "dpd", "dpddays", "dayspastdue", "overduedays", "daysoverdue"), 0);
 
   const securedFlag = findField(row, "collateralsecured", "issecured");
@@ -692,6 +692,7 @@ const mapRowToRecord = (row, index) => {
   const eclProvisionRaw = findField(row, "eclestimatedprovision", "eclprovision");
   const recommendedProvisionRaw = findField(row, "recommendedprovision");
   const iracRateRaw = findField(row, "iracprovisionrate");
+  const riskScore100Raw = findField(row, "riskscore100", "riskscore");
 
   const primaryEwsSignal = findField(row, "ewsprimarysignal");
   const ewsSignals = findField(row, "ewssignals", "earlywarningsignals", "ewsflags")
@@ -748,6 +749,7 @@ const mapRowToRecord = (row, index) => {
         "None",
     ),
     collateralValuationDate,
+    collateralValue,
     emiStatus,
     pd: pdProvided ? asPercent(pd180Raw) : pdFallback,
     pd30: pdProvided ? asPercent(pd30Raw) : null,
@@ -775,6 +777,7 @@ const mapRowToRecord = (row, index) => {
     eclProvisionProvided: eclProvisionRaw !== "" ? toNumber(eclProvisionRaw) : null,
     recommendedProvisionProvided: recommendedProvisionRaw !== "" ? toNumber(recommendedProvisionRaw) : null,
     iracProvisionRateProvided: iracRateRaw !== "" ? asPercent(iracRateRaw) : null,
+    riskScore100Provided: riskScore100Raw !== "" ? toNumber(riskScore100Raw) : null,
   };
 };
 
@@ -1168,9 +1171,13 @@ function PortfolioUploadCard({ onUpload, count, fileName }) {
           accept=".xlsx,.xls,.csv,text/csv"
           onChange={(event) => handleFile(event.target.files[0])}
         />
-        <span className="upload-icon">↥</span>
+        {busy ? (
+          <span className="upload-spinner" aria-hidden="true" />
+        ) : (
+          <span className="upload-icon">↥</span>
+        )}
         <strong>
-          {busy ? "Reading file…" : "Drop your .xlsx or .csv file here, or click to browse"}
+          {busy ? "Processing…" : "Drop your .xlsx or .csv file here, or click to browse"}
         </strong>
         <small>
           account_id · customer_name · product_type · sector · sanctioned_amount · dpd_days ·
@@ -1698,9 +1705,39 @@ function AccountsView({ records, selectedAccountId, onSelectAccount }) {
   );
 }
 
+// Falls back to a composite score (classification severity + DPD, bounces,
+// bureau trend, EMI status, restructuring, stale collateral) only when the
+// uploaded file doesn't already supply risk_score_100 for the account.
+const riskScore100 = (record) => {
+  if (record.riskScore100Provided != null) return Math.max(0, Math.min(100, Math.round(record.riskScore100Provided)));
+  const idx = iracOrder.indexOf(classifyIrac(record));
+  let score = (idx / (iracOrder.length - 1)) * 70;
+  if (record.dpd > 90) score += 15;
+  else if (record.dpd > 30) score += 8;
+  const bounces = bounceCountOf(record);
+  if (bounces >= 5) score += 8;
+  else if (bounces >= 3) score += 4;
+  if (bureauTrendOf(record) === "Declining") score += 5;
+  if (record.emiStatus === "Defaulted") score += 10;
+  else if (record.emiStatus === "Irregular") score += 4;
+  if (record.restructured) score += 3;
+  if (isValuationStale(record)) score += 2;
+  return Math.max(0, Math.min(100, Math.round(score)));
+};
+
+const riskTierOf = (score) =>
+  score > 66.6
+    ? { label: "RISKY", color: "var(--risk-substandard)" }
+    : score > 33.3
+      ? { label: "MODERATELY RISKY", color: "var(--risk-sma1)" }
+      : { label: "SAFE", color: "var(--risk-standard)" };
+
 function Account360({ record }) {
   const history = buildRepaymentHistory(record);
   const horizons = pdHorizons(record);
+  const score = riskScore100(record);
+  const tier = riskTierOf(score);
+  const repaymentOverdue = history[history.length - 1]?.status === "Missed";
   const maxPd = Math.max(...horizons.map((h) => h.band[1]), 10);
   const stage = eclStage(record);
   const cls = classifyIrac(record);
@@ -1781,6 +1818,8 @@ function Account360({ record }) {
           <b>Collateral</b>
           <ul className="kv-list">
             <li><span>Type</span><strong>{record.collateral}</strong></li>
+            <li><span>Security</span><strong>{record.security === "Secured" ? "SECURED" : "UNSECURED"}</strong></li>
+            <li><span>Collateral value</span><strong>{money(record.collateralValue)}</strong></li>
             <li><span>Last valuation</span><strong>{record.collateralValuationDate}</strong></li>
             <li>
               <span>Valuation status</span>
@@ -1788,30 +1827,42 @@ function Account360({ record }) {
                 {record.collateralValuationDate === "—" ? "N/A" : isValuationStale(record) ? "Stale — revaluation due" : "Current"}
               </strong>
             </li>
-            <li><span>EMI status</span><strong>{record.emiStatus}</strong></li>
-            <li><span>Bounces (6mo)</span><strong>{bounceCountOf(record)}</strong></li>
           </ul>
         </div>
 
         <div className="definition-card">
           <b>Early warning signals</b>
-          {record.ewsSignals.length === 0 ? (
-            <p className="ews-empty">No active EWS signals for this account.</p>
-          ) : (
-            <ul className="ews-list">
-              {record.ewsSignals.map((signal, index) => (
-                <li key={index} className={"ews-severity-" + signal.severity}>
-                  <b>{signal.type}</b>
-                  <span>{signal.date}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="ews-dial-wrap">
+            <div className="ews-dial" style={{ "--dial-color": tier.color }}>
+              <span>{score}</span>
+            </div>
+            <p className="ews-verdict" style={{ color: tier.color }}>{tier.label}</p>
+          </div>
+          <ul className="kv-list">
+            <li>
+              <span>Repayment overdue</span>
+              <strong className={repaymentOverdue ? "flag-stale" : ""}>{repaymentOverdue ? "Yes" : "No"}</strong>
+            </li>
+            <li>
+              <span>DPD beyond 90 days</span>
+              <strong className={record.dpd > 90 ? "flag-stale" : ""}>{record.dpd > 90 ? "Yes" : "No"}</strong>
+            </li>
+            <li>
+              <span>Bureau score declining</span>
+              <strong className={bureauTrendOf(record) === "Declining" ? "flag-stale" : ""}>
+                {bureauTrendOf(record) === "Declining" ? "Yes" : "No"}
+              </strong>
+            </li>
+            <li>
+              <span>EMI status</span>
+              <strong className={record.emiStatus === "Regular" ? "" : "flag-stale"}>{record.emiStatus}</strong>
+            </li>
+          </ul>
         </div>
       </div>
 
       <div className="account-360-grid two">
-        <div className="definition-card">
+        <div className="definition-card repayment-card">
           <b>Repayment history (last 6 months)</b>
           <div className="repayment-strip">
             {history.map((month) => (
@@ -1850,51 +1901,6 @@ function Account360({ record }) {
 }
 
 /* =========================================================
-   PROVISION GAUGE (semicircular speedometer)
-   ========================================================= */
-
-const polarToCartesian = (cx, cy, r, angleDeg) => {
-  const angleRad = ((angleDeg - 180) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(angleRad), y: cy + r * Math.sin(angleRad) };
-};
-
-const describeArc = (cx, cy, r, startAngle, endAngle) => {
-  const start = polarToCartesian(cx, cy, r, endAngle);
-  const end = polarToCartesian(cx, cy, r, startAngle);
-  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
-};
-
-function ProvisionGauge({ record }) {
-  const amount = Number(record.amount || 0);
-  const provision = recommendedProvision(record);
-  const pct = amount > 0 ? Math.min(100, (provision / amount) * 100) : 0;
-  const cx = 100;
-  const cy = 100;
-  const r = 78;
-  const angle = Math.max(0, Math.min(100, pct)) * 1.8;
-  const needle = polarToCartesian(cx, cy, r - 16, angle);
-  const tier = pct >= 50 ? "red" : pct >= 20 ? "amber" : "green";
-
-  return (
-    <div className="gauge-wrap">
-      <svg viewBox="0 0 200 118" className="gauge-svg">
-        <path d={describeArc(cx, cy, r, 0, 36)} className="gauge-zone gauge-green" />
-        <path d={describeArc(cx, cy, r, 36, 90)} className="gauge-zone gauge-amber" />
-        <path d={describeArc(cx, cy, r, 90, 180)} className="gauge-zone gauge-red" />
-        <line x1={cx} y1={cy} x2={needle.x} y2={needle.y} className="gauge-needle" />
-        <circle cx={cx} cy={cy} r="7" className="gauge-hub" />
-      </svg>
-      <div className={"gauge-readout tier-" + tier}>
-        <strong>{pct.toFixed(1)}%</strong>
-        <span>of loan amount recommended as provision</span>
-        <small>{money(provision)} on {money(amount)} sanctioned</small>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
    3. PROVISIONING CALCULATOR
    ========================================================= */
 
@@ -1906,9 +1912,44 @@ const matchesClassificationFilter = (record, filter) => {
   return filter === "NPA" ? npaBranch : !npaBranch;
 };
 
-function ProvisioningView({ records, selectedAccountId, onSelectAccount }) {
+function ProvisioningView({
+  records,
+  selectedAccountId,
+  onSelectAccount,
+  approvals,
+  setApprovals,
+  auditLog,
+  setAuditLog,
+}) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
+  const [overrideDraft, setOverrideDraft] = useState({});
+
+  const act = (record, status) => {
+    const reason = status === "Overridden" ? (overrideDraft[record.id] || "").trim() : "";
+    if (status === "Overridden" && !reason) return;
+    setApprovals((prev) => ({
+      ...prev,
+      [record.id]: {
+        status,
+        approvedBy: "Aarav Sharma",
+        overrideReason: reason || null,
+        timestamp: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      },
+    }));
+    setAuditLog((prev) => [
+      {
+        id: prev.length + 1,
+        accountId: record.id,
+        accountName: record.name,
+        action: status,
+        reason: reason || null,
+        actor: "Aarav Sharma",
+        timestamp: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      },
+      ...prev,
+    ]);
+  };
 
   if (records.length === 0) {
     return (
@@ -2076,7 +2117,44 @@ function ProvisioningView({ records, selectedAccountId, onSelectAccount }) {
                   </div>
                 </div>
 
-                <ProvisionGauge record={selected} />
+                {(() => {
+                  const state = approvals[selected.id] || { status: defaultApprovalStatus(selected) };
+                  return (
+                    <div className="provisioning-approval">
+                      <div className="risk-panel-header">
+                        <div>
+                          <span className="risk-eyebrow">SIGN-OFF</span>
+                          <h2>Approval</h2>
+                          <p>Approve, reject, or override this account's provisioning with a mandatory reason</p>
+                        </div>
+                        <span className={"approval-status status-" + state.status.toLowerCase().replace(" ", "-")}>
+                          {state.status}
+                        </span>
+                      </div>
+                      <div className="approval-actions">
+                        <button type="button" className="approve-btn" onClick={() => act(selected, "Approved")}>
+                          ✓ Approve
+                        </button>
+                        <button type="button" className="reject-btn" onClick={() => act(selected, "Rejected")}>
+                          ✕ Reject
+                        </button>
+                      </div>
+                      <div className="override-row">
+                        <input
+                          type="text"
+                          placeholder="Override reason (required)"
+                          value={overrideDraft[selected.id] || ""}
+                          onChange={(e) =>
+                            setOverrideDraft((prev) => ({ ...prev, [selected.id]: e.target.value }))
+                          }
+                        />
+                        <button type="button" className="override-btn" onClick={() => act(selected, "Overridden")}>
+                          Override
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()
@@ -2114,148 +2192,6 @@ function ProvisioningView({ records, selectedAccountId, onSelectAccount }) {
             )}
           </div>
         )}
-      </section>
-    </div>
-  );
-}
-
-
-/* =========================================================
-   4. WORKFLOW & APPROVALS (maker-checker)
-   ========================================================= */
-
-function ApprovalsView({ records, approvals, setApprovals, auditLog, setAuditLog }) {
-  const [overrideDraft, setOverrideDraft] = useState({});
-
-  if (records.length === 0) {
-    return (
-      <div className="portfolio-dashboard">
-        <div className="dashboard-heading">
-          <div>
-            <p className="kicker">MAKER-CHECKER WORKFLOW</p>
-            <h1>Approvals</h1>
-            <p>Every provisioning recommendation requires sign-off before it becomes the official number.</p>
-          </div>
-          <span className="secure-pill">● No portfolio loaded</span>
-        </div>
-        <div className="risk-panel">
-          <div className="risk-empty">
-            No portfolio data yet. Upload your workbook from the Portfolio Dashboard tab.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const act = (record, status) => {
-    const reason = status === "Overridden" ? (overrideDraft[record.id] || "").trim() : "";
-    if (status === "Overridden" && !reason) {
-      return;
-    }
-    setApprovals((prev) => ({
-      ...prev,
-      [record.id]: {
-        status,
-        approvedBy: "Aarav Sharma",
-        overrideReason: reason || null,
-        timestamp: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
-      },
-    }));
-    setAuditLog((prev) => [
-      {
-        id: prev.length + 1,
-        accountId: record.id,
-        accountName: record.name,
-        action: status,
-        reason: reason || null,
-        actor: "Aarav Sharma",
-        timestamp: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
-      },
-      ...prev,
-    ]);
-  };
-
-  const queue = records.filter((r) => classifyIrac(r) !== "Standard");
-
-  return (
-    <div className="portfolio-dashboard">
-      <div className="dashboard-heading">
-        <div>
-          <p className="kicker">MAKER-CHECKER WORKFLOW</p>
-          <h1>Approvals</h1>
-          <p>Every provisioning recommendation requires sign-off before it becomes the official number.</p>
-        </div>
-        <span className="secure-pill">● {queue.length} in queue</span>
-      </div>
-
-      <section className="risk-panel risk-table-panel">
-        <div className="risk-panel-header">
-          <div>
-            <span className="risk-eyebrow">SIGN-OFF QUEUE</span>
-            <h2>Accounts requiring approval</h2>
-            <p>Approve, reject, or override with a mandatory reason</p>
-          </div>
-        </div>
-        <div className="risk-table-wrapper">
-          <table className="risk-table">
-            <thead>
-              <tr>
-                <th>Borrower</th>
-                <th>Classification</th>
-                <th>Recommended Provision</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {queue.map((r) => {
-                const state = approvals[r.id] || { status: defaultApprovalStatus(r) };
-                return (
-                  <tr key={r.id}>
-                    <td>
-                      <strong>{r.name}</strong>
-                      <small>{r.id}</small>
-                    </td>
-                    <td>
-                      <span className="irac-badge" style={{ background: iracColors[classifyIrac(r)] }}>
-                        {classifyIrac(r)}
-                      </span>
-                    </td>
-                    <td>{money(recommendedProvision(r))}</td>
-                    <td>
-                      <span className={"approval-status status-" + state.status.toLowerCase().replace(" ", "-")}>
-                        {state.status}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="approval-actions">
-                        <button type="button" className="approve-btn" onClick={() => act(r, "Approved")}>
-                          ✓ Approve
-                        </button>
-                        <button type="button" className="reject-btn" onClick={() => act(r, "Rejected")}>
-                          ✕ Reject
-                        </button>
-                      </div>
-                      <div className="override-row">
-                        <input
-                          type="text"
-                          placeholder="Override reason (required)"
-                          value={overrideDraft[r.id] || ""}
-                          onChange={(e) =>
-                            setOverrideDraft((prev) => ({ ...prev, [r.id]: e.target.value }))
-                          }
-                        />
-                        <button type="button" className="override-btn" onClick={() => act(r, "Overridden")}>
-                          Override
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       </section>
 
       <section className="risk-panel section-spaced">
@@ -2491,7 +2427,6 @@ function Dashboard({ light, setLight, onLogout, session }) {
     ["portfolio", faChartLine, "Portfolio Dashboard"],
     ["accounts", faTableList, "Accounts (360°)"],
     ["provisioning", faCalculator, "Provisioning"],
-    ["approvals", faStamp, "Approvals"],
     ["reports", faFileExport, "Reports & Export"],
     ["sources", faLandmark, "Official Sources"],
     ["profile", faUser, "My Profile"],
@@ -2573,10 +2508,6 @@ function Dashboard({ light, setLight, onLogout, session }) {
             records={records}
             selectedAccountId={selectedAccountId}
             onSelectAccount={setSelectedAccountId}
-          />
-        ) : active === "approvals" ? (
-          <ApprovalsView
-            records={records}
             approvals={approvals}
             setApprovals={setApprovals}
             auditLog={auditLog}
